@@ -19,8 +19,6 @@ dist/
 .DS_Store
 .vscode/
 .idea/
-=======
-
 .env
 apps/proxy/.env
 venv/
