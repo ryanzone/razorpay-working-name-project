@@ -1,0 +1,25 @@
+# Environment files & secrets
+.env
+.env.local
+*.env
+
+# Python Virtual Environments & Caches
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Node / Next.js Dashboard
+node_modules/
+.next/
+build/
+dist/
+
+# OS / Editor artifacts
+.DS_Store
+.vscode/
+.idea/
+.env
+apps/proxy/.env
+venv/
+apps/proxy/venv/
