@@ -1,0 +1,5 @@
+
+.env
+apps/proxy/.env
+venv/
+apps/proxy/venv/
