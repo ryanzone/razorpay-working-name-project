@@ -2,37 +2,39 @@ from app.schemas.policy import IntentPolicy, DecisionResult
 
 def evaluate_cart_against_policy(checkout_payload: dict, policy: IntentPolicy) -> DecisionResult:
     """
-    Evaluates an incoming checkout payload against a compiled IntentPolicy.
-    Checks monetary bounds, required categories, and negative constraints.
+    Evaluates an incoming checkout payload dynamically against a compiled IntentPolicy.
+    Uses rules extracted directly from the user's natural language input.
     """
     total_amount = checkout_payload.get("amount", 0)
     line_items = checkout_payload.get("line_items", [])
     rules = policy.rules
 
-    # 1. Budget Hard Constraint & Variance Check
+    # 1. Dynamic Budget & Variance Check
     if total_amount > rules.max_budget_inr:
         variance = ((total_amount - rules.max_budget_inr) / rules.max_budget_inr) * 100
         
-        # If variance is within the allowed tolerance (e.g., 5%), put on HOLD for Human-in-the-Loop approval
+        # Evaluates variance against the dynamically extracted percentage
         if variance <= rules.variance_tolerance_percent:
             return DecisionResult(
                 status="AMBIGUOUS",
-                reason=f"Amount ₹{total_amount} exceeds budget ₹{rules.max_budget_inr} by {round(variance, 2)}% (within tolerance).",
+                reason=(
+                    f"Cart total ₹{total_amount:,.2f} exceeds dynamic budget ₹{rules.max_budget_inr:,.2f} "
+                    f"by {round(variance, 2)}% (within user's allowed {rules.variance_tolerance_percent}% tolerance)."
+                ),
                 escalation_id=f"esc_{policy.intent_id}"
             )
         
-        # Severe budget overage triggers hard rejection
         return DecisionResult(
             status="VIOLATION",
-            reason=f"Total amount ₹{total_amount} exceeds maximum allowed budget of ₹{rules.max_budget_inr}."
+            reason=f"Cart total ₹{total_amount:,.2f} exceeds user spending limit of ₹{rules.max_budget_inr:,.2f}."
         )
 
-    # 2. Line Item & Prohibited Negative Constraint Checks
+    # 2. Dynamic Line Item & Negative Constraint Checks
     for item in line_items:
         name = item.get("name", "").lower()
         category = item.get("category", "").lower()
 
-        # Check prohibited categories (e.g., "warranty", "accessories", "insurance")
+        # Check prohibited categories dynamically extracted by LLM compiler
         for prohibited_cat in rules.prohibited_categories:
             if prohibited_cat.lower() in category or prohibited_cat.lower() in name:
                 return DecisionResult(
@@ -40,7 +42,7 @@ def evaluate_cart_against_policy(checkout_payload: dict, policy: IntentPolicy) -
                     reason=f"Cart item '{item.get('name')}' violates prohibited category rule: '{prohibited_cat}'."
                 )
 
-        # Check prohibited keywords in titles (e.g., "3-year", "extended", "protection")
+        # Check prohibited keywords dynamically extracted by LLM compiler
         for keyword in rules.prohibited_keywords:
             if keyword.lower() in name:
                 return DecisionResult(

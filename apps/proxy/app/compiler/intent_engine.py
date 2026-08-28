@@ -2,17 +2,17 @@ import hmac
 import hashlib
 import json
 import time
+import asyncio
 from uuid import uuid4
 from google import genai
 from google.genai import types
+from google.genai.errors import ServerError, APIError
 
 from app.schemas.policy import IntentPolicy, IntentRules
 from app.core.config import settings
 
-# Initialize Gemini Client with API Key
 client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
-# Define system prompt for strict policy compilation
 SYSTEM_INSTRUCTION = """
 You are a financial policy engine for an agentic payment gateway.
 Your task is to convert a user's natural language shopping instruction into a strict JSON policy schema.
@@ -26,33 +26,47 @@ Rules:
 """
 
 def generate_policy_signature(payload_dict: dict, secret: str) -> str:
-    """Generates an HMAC SHA-256 signature over the policy rules for non-repudiation."""
     canonical_bytes = json.dumps(payload_dict, sort_keys=True).encode('utf-8')
     return hmac.new(secret.encode('utf-8'), canonical_bytes, hashlib.sha256).hexdigest()
 
 async def compile_user_intent(user_id: str, raw_prompt: str, ttl_seconds: int = 3600) -> IntentPolicy:
-    """
-    Compiles natural language prompt into a cryptographically signed IntentPolicy.
-    """
-    # Call Gemini 1.5 Flash with Pydantic Structured Output Enforcement
-    response = client.models.generate_content(
-        model='gemini-3.5-flash',
-        contents=raw_prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            response_mime_type="application/json",
-            response_schema=IntentRules,
-            temperature=0.0,
-        ),
-    )
+    max_retries = 3
+    response = None
+    
+    for attempt in range(max_retries):
+        try:
+            # Use 'gemini-2.5-flash' or 'gemini-1.5-flash' as clean model strings in google-genai SDK
+            response = client.models.generate_content(
+                model='gemini-2.5-flash',
+                contents=raw_prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=IntentRules,
+                    temperature=0.0,
+                ),
+            )
+            break
+        except (ServerError, APIError) as e:
+            if attempt == max_retries - 1:
+                # If gemini-2.5-flash falls back, try standard flash
+                response = client.models.generate_content(
+                    model='gemini-3.5-flash',
+                    contents=raw_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=SYSTEM_INSTRUCTION,
+                        response_mime_type="application/json",
+                        response_schema=IntentRules,
+                        temperature=0.0,
+                    ),
+                )
+            else:
+                await asyncio.sleep(2 ** attempt)
 
-    # Parse LLM response into Pydantic model
     parsed_rules: IntentRules = IntentRules.model_validate_json(response.text)
-
     intent_id = uuid4()
     expires_at = int(time.time()) + ttl_seconds
 
-    # Construct base dictionary to compute signature
     unsigned_payload = {
         "intent_id": str(intent_id),
         "user_id": user_id,
@@ -60,10 +74,8 @@ async def compile_user_intent(user_id: str, raw_prompt: str, ttl_seconds: int = 
         "expires_at": expires_at
     }
 
-    # Generate HMAC signature
     signature = generate_policy_signature(unsigned_payload, settings.POLICY_HMAC_SECRET)
 
-    # Return full validated policy
     return IntentPolicy(
         intent_id=intent_id,
         user_id=user_id,
@@ -72,16 +84,3 @@ async def compile_user_intent(user_id: str, raw_prompt: str, ttl_seconds: int = 
         expires_at=expires_at,
         signature=signature
     )
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def test_compiler():
-        test_prompt = "Buy me a college laptop under ₹70,000, absolutely no warranty or accessories."
-        print(f"\n[Input Prompt]: {test_prompt}")
-        
-        policy = await compile_user_intent(user_id="usr_test_99", raw_prompt=test_prompt)
-        print("\n[Compiled & Signed Policy Envelope]:")
-        print(json.dumps(policy.model_dump(), indent=2, default=str))
-
-    asyncio.run(test_compiler())
