@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  proxy-backend:
+    build:
+      context: ./apps/proxy
+      dockerfile: Dockerfile
+    container_name: razorpay-intentguard-proxy
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./apps/proxy/.env
+    restart: always
