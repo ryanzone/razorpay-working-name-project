@@ -1,31 +1,39 @@
-
 # Razorpay IntentGuard
 
 > **Real-Time Semantic Intent Verification Proxy & Policy Enforcement Gateway for Agentic Commerce**
 
 [![Razorpay API](https://img.shields.io/badge/Razorpay-v1%2Forders-blue)](https://razorpay.com)
 [![Python](https://img.shields.io/badge/Python-3.11-green)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688)](https://fastapi.tiangolo.com)
-[![Gemini API](https://img.shields.io/badge/AI-Gemini%201.5%20Flash-orange)](https://ai.google.dev)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688)](https://fastapi.tiangolo.com)
+[![Gemini API](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-orange)](https://ai.google.dev)
 [![Security](https://img.shields.io/badge/Security-HMAC%20SHA--256-red)](https://en.wikipedia.org/wiki/HMAC)
 
 ---
 
 ## Executive Summary
 
-Autonomous AI shopping agents frequently make purchases on behalf of consumers. However, standard payment gateway rails only enforce flat spending caps (e.g., total price ≤ ₹70,000). Existing payment networks cannot evaluate natural language constraints or inspect individual cart line items to verify if a transaction actually aligns with the user's original instructions.
+Autonomous AI shopping agents frequently make purchases on behalf of consumers. However, standard payment gateway rails primarily enforce flat spending caps (e.g., total price ≤ ₹70,000). They cannot evaluate natural-language constraints or inspect individual cart line items to determine whether a transaction actually aligns with the user's original instructions.
 
-**Razorpay IntentGuard** acts as an intelligent pre-authorization gateway proxy sitting in front of Razorpay's `POST /v1/orders` API. It dynamically compiles natural language user instructions into cryptographically signed JSON policy envelopes, inspects cart line items for sneaky merchant upsells or unauthorized accessories, and introduces an asynchronous **Human-in-the-Loop (HOLD)** state machine for ambiguous overages[cite: 2, 4, 6].
+**Razorpay IntentGuard** acts as an intelligent pre-authorization gateway proxy sitting in front of Razorpay's `POST /v1/orders` API.
+
+It dynamically:
+
+* Compiles natural-language user instructions into cryptographically signed JSON policy envelopes.
+* Inspects individual cart line items for unauthorized products, accessories, warranties, and merchant upsells.
+* Blocks transactions that violate explicit user intent.
+* Introduces an asynchronous **Human-in-the-Loop (HITL)** `HOLD` state for ambiguous overages.
+* Maintains an audit trail of policy decisions.
 
 ---
 
 ## Architecture & Protocol Alignment
 
-Razorpay IntentGuard aligns global standards like **Google AP2 (Intent/Cart Mandates)**[cite: 4, 5, 6] and **Mastercard Verifiable Intent Frameworks** directly with the Razorpay API ecosystem[cite: 2, 4, 6].
+Razorpay IntentGuard is designed around emerging standards for **verifiable intent and agentic commerce**, including **Google AP2 (Intent/Cart Mandates)** and **Mastercard Verifiable Intent Frameworks**, while integrating directly with the Razorpay API ecosystem.
 
-```
+```text
 ┌─────────────────────────┐
 │ User Intent Prompt      │
+│ "Buy laptop under ₹70k" │
 └───────────┬─────────────┘
             │
             ▼
@@ -33,50 +41,120 @@ Razorpay IntentGuard aligns global standards like **Google AP2 (Intent/Cart Mand
 │ Gemini LLM              │
 │ Intent Compiler         │
 └───────────┬─────────────┘
+            │
             │ Generates HMAC Policy
             ▼
-┌─────────────────────────┐      Checkout Payload      ┌─────────────────────────┐
-│ Signed Policy Envelope  │ ─────────────────────────> │ Razorpay IntentGuard    │
-└─────────────────────────┘                            │ Proxy Interceptor       │
-                                                       └───────────┬─────────────┘
-                                                                   │
-                                   ┌───────────────────────────────┼───────────────────────────────┐
-                                   │                               │                               │
-                                   ▼                               ▼                               ▼
-                      ┌─────────────────────────┐     ┌─────────────────────────┐     ┌─────────────────────────┐
-                      │ STATUS: APPROVED        │     │ STATUS: BLOCKED         │     │ STATUS: HOLD            │
-                      ├─────────────────────────┤     ├─────────────────────────┤     ├─────────────────────────┤
-                      │ Executes Razorpay Order │     │ Prevents Order Creation │     │ Dispatches WhatsApp     │
-                      │ (POST /v1/orders)       │     │ Logs Intent Violation   │     │ Interactive Link        │
-                      └─────────────────────────┘     └─────────────────────────┘     └─────────────────────────┘
-
+┌─────────────────────────┐      Checkout Payload
+│ Signed Policy Envelope  │ ─────────────────────────>
+│ HMAC-SHA256             │
+└─────────────────────────┘
+                                                      
+                              ┌─────────────────────────┐
+                              │ Razorpay IntentGuard    │
+                              │ Proxy Interceptor       │
+                              └───────────┬─────────────┘
+                                          │
+                 ┌────────────────────────┼────────────────────────┐
+                 │                        │                        │
+                 ▼                        ▼                        ▼
+      ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────┐
+      │ STATUS: APPROVED    │  │ STATUS: BLOCKED     │  │ STATUS: HOLD        │
+      ├─────────────────────┤  ├─────────────────────┤  ├─────────────────────┤
+      │ Executes Razorpay   │  │ Prevents Order      │  │ Dispatches WhatsApp │
+      │ Order               │  │ Creation            │  │ Approval Link       │
+      └─────────────────────┘  └─────────────────────┘  └─────────────────────┘
 ```
-Key Features
-Natural Language Intent Compiler: Converts unstructured prompts into strict JSON policy bounds (budget limits, required categories, prohibited categories, and negative keywords) using Gemini 1.5 Flash[cite: 2, 4, 6].
 
-Cryptographic Non-Repudiation: Signs compiled policies using HMAC SHA-256 to prevent payload tampering during multi-step agent shopping sessions[cite: 2, 4, 6].
+### Decision Flow
 
-Semantic Line-Item Inspection: Evaluates individual item titles/categories against negative constraints (e.g., blocking ₹9,000 extended warranties even if total cart price remains under budget)[cite: 2, 4, 6].
+| Status     | Condition                      | Action                  |
+| ---------- | ------------------------------ | ----------------------- |
+| `APPROVED` | Cart matches user intent       | Creates Razorpay order  |
+| `BLOCKED`  | Policy violation detected      | Prevents order creation |
+| `HOLD`     | Ambiguous or tolerated overage | Requests human approval |
 
-Human-in-the-Loop (HITL) State Machine: Ambiguous transactions (e.g., 2% over budget within a 5% tolerance window) trigger a HOLD state, sending interactive WhatsApp approval links to the user before resuming order creation.
+---
 
-Containerized Microservice: Built and deployed using Docker for simple local setup and production environment parity.
-Tech Stack & Directory Structure
-Tech Stack
-Proxy Gateway: Python 3.11, FastAPI, Uvicorn[cite: 2, 4, 6]
+## Key Features
 
-Intent Compiler: Google GenAI SDK (gemini-1.5-flash)[cite: 2, 4, 6]
+### 1. Natural Language Intent Compiler
 
-Validation Engine: Pydantic v2, Hashlib (HMAC SHA-256)[cite: 2, 4, 6]
+Converts unstructured user prompts into strict JSON policy bounds, including:
 
-Payment Gateway Integration: Official Razorpay Python SDK (razorpay)
+* Budget limits
+* Required categories
+* Prohibited categories
+* Negative keywords
+* Budget tolerance
 
-Escalation Service: Twilio SDK (WhatsApp Outbound Webhooks)
+The compiler uses **Gemini 1.5 Flash** to interpret the user's original intent.
 
-Containerization: Docker & Docker Compose
+### 2. Cryptographic Non-Repudiation
 
+Compiled policies are signed using **HMAC-SHA256** to prevent unauthorized policy modification during multi-step agent shopping sessions.
 
+### 3. Semantic Line-Item Inspection
+
+Instead of checking only the total transaction value, IntentGuard evaluates individual cart items against the user's constraints.
+
+**Example:**
+
+```text
+User Intent:
+"Buy a laptop under ₹70,000. No warranty."
+
+Cart:
+Laptop       ₹65,000
+Warranty      ₹9,000
+--------------------
+Total         ₹74,000
+
+Result: BLOCKED
+Reason: Warranty violates the user's explicit constraint.
+```
+
+### 4. Human-in-the-Loop (HITL) State Machine
+
+Ambiguous transactions can enter a `HOLD` state instead of being immediately rejected.
+
+For example:
+
+```text
+Policy Budget:    ₹70,000
+Cart Total:       ₹71,400
+Overage:              2%
+Tolerance:            5%
+
+Result: HOLD
+```
+
+The user receives an approval request before the transaction is allowed to continue.
+
+### 5. Containerized Microservice
+
+Built and deployed using **Docker and Docker Compose** for consistent local development and deployment.
+
+---
+
+## Tech Stack
+
+| Component                   | Technology                         |
+| --------------------------- | ---------------------------------- |
+| Proxy Gateway               | Python 3.11, FastAPI, Uvicorn      |
+| Intent Compiler             | Google GenAI SDK, Gemini 2.5 Flash |
+| Validation Engine           | Pydantic v2                        |
+| Cryptographic Signing       | HMAC-SHA256                        |
+| Payment Gateway Integration | Razorpay Python SDK                |
+| Escalation Service          | Twilio SDK, WhatsApp Webhooks      |
+| Containerization            | Docker, Docker Compose             |
+
+---
+
+## Directory Structure
+
+```text
 razorpay-intentguard/
+│
 ├── apps/
 │   ├── proxy/
 │   │   ├── app/
@@ -85,16 +163,235 @@ razorpay-intentguard/
 │   │   │   ├── evaluator/    # Semantic Rule Pipeline
 │   │   │   ├── services/     # Escalation Store & WhatsApp Notifier
 │   │   │   └── main.py
+│   │   │
 │   │   └── Dockerfile
+│   │
 │   └── dashboard/            # Agent Simulator & Audit UI
+│
 ├── docker-compose.yml
 └── README.md
+```
 
+---
 
-Quick Start & Deployment Guide1. Prerequisites & Environment SetupCreate an .env file in apps/proxy/.env (or root):BashGEMINI_API_KEY="your-gemini-api-key"
+# Quick Start & Deployment Guide
+
+## 1. Prerequisites
+
+Make sure you have:
+
+* Python 3.11+
+* Docker
+* Docker Compose
+* Razorpay test API credentials
+* Gemini API key
+* Twilio credentials if WhatsApp escalation is enabled
+
+---
+
+## 2. Environment Setup
+
+Create a `.env` file in `apps/proxy/` or the project root:
+
+```env
+GEMINI_API_KEY="your-gemini-api-key"
+
 RAZORPAY_KEY_ID="rzp_test_xxxxxxxxxxxx"
 RAZORPAY_KEY_SECRET="xxxxxxxxxxxxxxxxxxxxxxxx"
+
 POLICY_HMAC_SECRET="super-secret-hmac-key"
-2. Launch Containerized Proxy BackendBuild and run the stack using Docker Compose:Bashdocker-compose up --build -d
-3. Verify Proxy HealthHealth Check Endpoint: http://localhost:8000/healthSwagger API Docs: http://localhost:8000/docs4. Run Automated Test SuiteBashpython apps/proxy/test_hitl.py
-Verified Gateway PathwaysScenarioInput PromptCart ContentsProxy ResultGateway ActionClean Match"Buy laptop under ₹30,000"Laptop (₹28,500)200 APPROVEDExecutes razorpay.Client.order.create()Category Violation"Buy laptop under ₹70,000, no warranty"Laptop (₹65k) + Warranty (₹9k)400 BLOCKEDPrevents checkout; Logs violation reasonHITL Overage"Buy laptop under ₹70,000"Upgraded Laptop (₹71,400 - 2% over)200 HOLDDispatches approval webhook; Resumes on clickAPI ReferenceGET /health — Service health checkPOST /v1/orders — Interceptor endpoint evaluating cart payloads against signed intent policiesPOST /v1/escalations/{escalation_id}/decision — Decision endpoint for human approval callbackGET /v1/audit-trail — Fetches transaction audit logs
+```
+
+> **Security:** Never commit API keys or secrets to Git.
+
+Add the following to `.gitignore`:
+
+```gitignore
+.env
+*.env
+__pycache__/
+```
+
+---
+
+## 3. Launch the Containerized Proxy Backend
+
+Build and run the stack using Docker Compose:
+
+```bash
+docker-compose up --build -d
+```
+
+Verify the running containers:
+
+```bash
+docker-compose ps
+```
+
+---
+
+## 4. Verify Proxy Health
+
+### Health Check
+
+```text
+http://localhost:8000/health
+```
+
+### Swagger API Documentation
+
+```text
+http://localhost:8000/docs
+```
+
+---
+
+## 5. Run the Automated Test Suite
+
+Run the HITL test suite:
+
+```bash
+python apps/proxy/test_hitl.py
+```
+
+---
+
+# Verified Gateway Pathways
+
+| Scenario               | Input Prompt                            | Cart Contents                        | Proxy Result   | Gateway Action                                   |
+| ---------------------- | --------------------------------------- | ------------------------------------ | -------------- | ------------------------------------------------ |
+| **Clean Match**        | "Buy laptop under ₹30,000"              | Laptop — ₹28,500                     | `200 APPROVED` | Executes `razorpay.Client.order.create()`        |
+| **Category Violation** | "Buy laptop under ₹70,000, no warranty" | Laptop — ₹65,000 + Warranty — ₹9,000 | `400 BLOCKED`  | Prevents checkout and logs violation             |
+| **HITL Overage**       | "Buy laptop under ₹70,000"              | Upgraded Laptop — ₹71,400 (2% over)  | `200 HOLD`     | Dispatches approval webhook; resumes on approval |
+
+---
+
+# API Reference
+
+### `GET /health`
+
+Service health check.
+
+---
+
+### `POST /v1/orders`
+
+Interceptor endpoint that evaluates the checkout payload against the signed intent policy.
+
+Possible outcomes:
+
+* `APPROVED`
+* `BLOCKED`
+* `HOLD`
+
+---
+
+### `POST /v1/escalations/{escalation_id}/decision`
+
+Decision endpoint used for human approval callbacks when a transaction is in the `HOLD` state.
+
+---
+
+### `GET /v1/audit-trail`
+
+Fetches transaction and policy evaluation audit logs.
+
+---
+
+# Example Intent Policy
+
+A natural-language request such as:
+
+```text
+Buy me a laptop under ₹70,000.
+Do not purchase a warranty or accessories.
+```
+
+can be compiled into a structured policy similar to:
+
+```json
+{
+  "max_budget": 70000,
+  "required_categories": [
+    "laptop"
+  ],
+  "prohibited_categories": [
+    "warranty",
+    "accessory"
+  ],
+  "negative_keywords": [
+    "extended warranty",
+    "protection plan"
+  ],
+  "tolerance_percent": 5
+}
+```
+
+The policy is then signed using **HMAC-SHA256** before being passed to the transaction evaluation layer.
+
+---
+
+# Security Model
+
+IntentGuard separates **intent compilation**, **policy signing**, and **transaction evaluation**:
+
+```text
+User Intent
+     │
+     ▼
+Gemini Intent Compiler
+     │
+     ▼
+Structured Policy
+     │
+     ▼
+HMAC-SHA256 Signature
+     │
+     ▼
+Cart Evaluation
+     │
+     ├──────────► APPROVED
+     │
+     ├──────────► BLOCKED
+     │
+     └──────────► HOLD
+                    │
+                    ▼
+              Human Decision
+```
+
+This architecture helps prevent an agent from silently modifying the user's original purchasing constraints before checkout.
+
+---
+
+# Protocol & Standards Alignment
+
+IntentGuard is designed around concepts from emerging **agentic commerce and verifiable intent** standards:
+
+* **Intent-based authorization**
+* **Cryptographically verifiable policies**
+* **Cart-level verification**
+* **Human-in-the-loop authorization**
+* **Policy enforcement at payment boundaries**
+
+The system is designed to complement payment infrastructure such as the Razorpay Orders API by adding a semantic intent verification layer before order creation.
+
+---
+
+# Future Enhancements
+
+* Persistent database-backed audit logs
+* Production-grade WhatsApp approval workflows
+* Policy versioning and replay protection
+* Agent identity verification
+* Multi-agent transaction support
+* Merchant-side policy metadata
+* Advanced fraud and anomaly detection
+* Dashboard analytics for policy violations
+* Support for additional payment gateways
+
+---
+
+## License
+
+This project is a prototype / demonstration of **semantic intent verification for agentic commerce**.
