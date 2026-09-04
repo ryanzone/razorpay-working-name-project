@@ -153,23 +153,49 @@ Built and deployed using **Docker and Docker Compose** for consistent local deve
 ## Directory Structure
 
 ```text
-razorpay-intentguard/
-│
-├── apps/
-│   ├── proxy/
-│   │   ├── app/
-│   │   │   ├── api/          # Interceptor & Escalation Routes
-│   │   │   ├── compiler/     # Gemini Intent Engine & HMAC Signer
-│   │   │   ├── evaluator/    # Semantic Rule Pipeline
-│   │   │   ├── services/     # Escalation Store & WhatsApp Notifier
-│   │   │   └── main.py
-│   │   │
-│   │   └── Dockerfile
-│   │
-│   └── dashboard/            # Agent Simulator & Audit UI
-│
-├── docker-compose.yml
-└── README.md
+├── apps
+│   ├── dashboard
+│   │   ├── Dockerfile
+│   │   ├── app.py
+│   │   └── requirements.txt
+│   └── proxy
+│       ├── app
+│       │   ├── api
+│       │   │   ├── __init__.py
+│       │   │   ├── escalation.py
+│       │   │   └── routes.py
+│       │   ├── compiler
+│       │   │   ├── __init__.py
+│       │   │   └── intent_engine.py
+│       │   ├── core
+│       │   │   ├── __init__.py
+│       │   │   └── config.py
+│       │   ├── evaluator
+│       │   │   ├── __init__.py
+│       │   │   └── rules.py
+│       │   ├── schemas
+│       │   │   ├── __init__.py
+│       │   │   └── policy.py
+│       │   ├── services
+│       │   │   ├── __init__.py
+│       │   │   ├── audit.py
+│       │   │   ├── escalation_store.py
+│       │   │   └── notifier.py
+│       │   ├── __init__.py
+│       │   └── main.py
+│       ├── .env.example
+│       ├── .gitignore
+│       ├── Dockerfile
+│       ├── requirements.txt
+│       ├── test_client.py
+│       ├── test_full_suite.py
+│       └── test_hitl.py
+├── packages
+│   └── shared-types
+│       └── policy.schema.ts
+├── .gitignore
+├── README.md
+└── docker-compose.yml
 ```
 
 ---
