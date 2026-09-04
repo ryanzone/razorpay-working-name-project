@@ -87,7 +87,7 @@ Converts unstructured user prompts into strict JSON policy bounds, including:
 * Negative keywords
 * Budget tolerance
 
-The compiler uses **Gemini 1.5 Flash** to interpret the user's original intent.
+The compiler uses **Gemini 2.5 Flash** to interpret the user's original intent.
 
 ### 2. Cryptographic Non-Repudiation
 
